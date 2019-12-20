@@ -2,8 +2,10 @@
  * renderer - WTFPL
  */
 
+// Rasterizer Lesson 1
+
 #include <stdio.h>
 
 int main(void) {
-  printf("Hello, world!\n");
+  printf("Hello, lesson 1!\n");
 }
