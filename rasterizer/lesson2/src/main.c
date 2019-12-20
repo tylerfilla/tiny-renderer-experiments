@@ -9,6 +9,7 @@
 // Rasterizer - Lesson 2
 //
 
+#include <math.h>
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -38,6 +39,55 @@ typedef struct {
 #define image_pixel(image, x, y) \
     (((image_t*) (image))->pixels[x + y * ((image_t*) (image))->width])
 
+/** An integer 2-vector. */
+typedef struct {
+  int x;
+  int y;
+} vec2i_t;
+
+/** Draw an aliased line. */
+static void line(image_t* image, vec2i_t a, vec2i_t b, color_t color) {
+  // Displacements
+  int dx = b.x - a.x;
+  int dy = b.y - a.y;
+
+  // If the line is wider than it is tall
+  // We need to iterate on the longer axis to prevent stippling
+  if (abs(dx) > abs(dy)) {
+    // Swap points if they are reversed on the x-axis
+    if (a.x > b.x) {
+      vec2i_t c = a;
+      a = b;
+      b = c;
+      dx = -dx;
+      dy = -dy;
+    }
+
+    // Iterate over the x-axis, and draw the line
+    for (int x = a.x; x < b.x; ++x) {
+      float t = (float) (x - a.x) / (float) dx;
+      int y = (int) ((float) a.y + t * (float) dy);
+      image_pixel(image, x, y) = color;
+    }
+  } else {
+    // Swap points if they are reversed on the y-axis
+    if (a.y > b.y) {
+      vec2i_t c = a;
+      a = b;
+      b = c;
+      dx = -dx;
+      dy = -dy;
+    }
+
+    // Iterate over the y-axis, and draw the line
+    for (int y = a.y; y < b.y; ++y) {
+      float t = (float) (y - a.y) / (float) dy;
+      int x = (int) ((float) a.x + t * (float) dx);
+      image_pixel(image, x, y) = color;
+    }
+  }
+}
+
 int main(void) {
   // Allocate output image
   image_t image;
@@ -51,6 +101,9 @@ int main(void) {
       image_pixel(&image, x, y) = (color_t) {.r = 80, .g = 80, .b = 140, .a = 255};
     }
   }
+
+  // Draw a line
+  line(&image, (vec2i_t) {100, 100}, (vec2i_t) {140, 50}, (color_t) {.rgba = 0xffffffff});
 
   // Try to write the output image
   if (!stbi_write_png("output.png", image.width, image.height, 4, image.pixels, 0)) {
