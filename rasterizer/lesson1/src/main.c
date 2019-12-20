@@ -12,6 +12,19 @@
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
 
+typedef struct point {
+  float x;
+  float y;
+} point_t;
+
+static void line(uint32_t* image, int width, const point_t* p0, const point_t* p1, uint32_t color) {
+  for (float t = 0; t < 1.0f; t += 0.01f) {
+    int x = (int) (p0->x + (p1->x - p0->x) * t);
+    int y = (int) (p0->y + (p1->y - p0->y) * t);
+    image[x + y * width] = color;
+  }
+}
+
 int main(void) {
   srand((unsigned int) time(NULL));
 
@@ -28,7 +41,9 @@ int main(void) {
     }
   }
 
-  if (!stbi_write_png("output.png", image_width, image_height, 4, image_data, image_width)) {
+  line(image_data, image_width, &(point_t) {20,40}, &(point_t) {50,100}, 0xff000000);
+
+  if (!stbi_write_png("output.png", image_width, image_height, 4, image_data, 0)) {
     fprintf(stderr, "failed to write output image\n");
   }
 
