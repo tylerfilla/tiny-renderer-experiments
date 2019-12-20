@@ -85,11 +85,62 @@ static void line(image_t* image, vec2i_t a, vec2i_t b, color_t color) {
   }
 }
 
-/** Draw an aliased triangle. */
+/** Fill a triangle. */
 static void triangle(image_t* image, vec2i_t a, vec2i_t b, vec2i_t c, color_t color) {
-  line(image, a, b, color);
-  line(image, b, c, color);
-  line(image, c, a, color);
+  // Sort the points A, B, and C by y-coordinates increasing
+  // This lets us make some nice assumptions later on when filling the triangle line-by-line
+  if (a.y > b.y) {
+    vec2i_t tmp = a;
+    a = b;
+    b = tmp;
+  }
+  if (b.y > c.y) {
+    vec2i_t tmp = b;
+    b = c;
+    c = tmp;
+  }
+  if (a.y > b.y) {
+    vec2i_t tmp = a;
+    a = b;
+    b = tmp;
+  }
+
+  // Iterate over the height of the triangle
+  // Since we did the sort above, we just need to scan from point A to point C on the y-axis
+  for (int y = a.y; y < c.y; ++y) {
+    // The x-span at this y-coordinate
+    int x0;
+    int x1;
+
+    // If we are below point B
+    if (y < b.y) {
+      // We are in the lower half of the triangle
+      // We need to solve the AB and CA lines and fill between them
+
+      // Calculate parametric "progress" along the AB and CA lines
+      float ab_t = (float) (y - a.y) / (float) (b.y - a.y);
+      float ca_t = (float) (y - a.y) / (float) (c.y - a.y); // meow
+
+      // Calculate the x-values we must have on the AB and CA lines
+      x0 = (int) ((float) a.x + ab_t * (float) (b.x - a.x));
+      x1 = (int) ((float) a.x + ca_t * (float) (c.x - a.x));
+    } else {
+      // We are in the upper half of the triangle
+      // We need to solve the BC and CA lines and fill between them
+
+      // Calculate parametric "progress" along the BC and CA lines
+      float bc_t = (float) (y - b.y) / (float) (c.y - b.y);
+      float ca_t = (float) (y - a.y) / (float) (c.y - a.y); // meow
+
+      // Calculate the x-value we must have on the BC and CA lines
+      x0 = (int) ((float) b.x + bc_t * (float) (c.x - b.x));
+      x1 = (int) ((float) a.x + ca_t * (float) (c.x - a.x));
+    }
+
+    // Draw the x-span we computed
+    // This has the effect of filling this one row of the triangle
+    line(image, (vec2i_t) {x0, y}, (vec2i_t) {x1, y}, color);
+  }
 }
 
 int main(void) {
@@ -112,7 +163,7 @@ int main(void) {
   triangle(&image, (vec2i_t) {314, 100}, (vec2i_t) {377, 378}, (vec2i_t) {231, 503}, (color_t) {.b = 255, .a = 255});
 
   // Try to write the output image
-  if (!stbi_write_png("output.png", image.width, image.height, 4, image.pixels, 0)) {
+  if (!stbi_write_png("output2.png", image.width, image.height, 4, image.pixels, 0)) {
     fprintf(stderr, "error: failed to write output image\n");
     return 1;
   }
