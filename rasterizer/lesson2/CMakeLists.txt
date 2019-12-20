@@ -6,10 +6,10 @@
 #
 
 cmake_minimum_required(VERSION 3.4)
-project(Rasterizer1)
+project(Rasterizer2)
 
-set(rasterizer1_SRC_FILES
+set(rasterizer2_SRC_FILES
         src/main.c)
 
-add_executable(rasterizer1 ${rasterizer1_SRC_FILES})
-set_target_properties(rasterizer1 PROPERTIES C_STANDARD 99)
+add_executable(rasterizer2 ${rasterizer2_SRC_FILES})
+set_target_properties(rasterizer2 PROPERTIES C_STANDARD 99)

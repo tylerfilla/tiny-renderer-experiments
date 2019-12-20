@@ -6,7 +6,7 @@
 #
 
 cmake_minimum_required(VERSION 3.4)
-project(Renderer)
+project(Raytracer)
 
-add_subdirectory(rasterizer)
-add_subdirectory(raytracer)
+add_subdirectory(part1)
+add_subdirectory(part2)
