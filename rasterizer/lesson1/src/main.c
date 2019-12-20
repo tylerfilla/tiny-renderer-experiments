@@ -74,10 +74,20 @@ static int png_write(const png_t* self, const char* filename) {
 
 // Draw a simple line
 static void line(png_t* image, int x0, int y0, int x1, int y1, color_t color) {
-  for (int x = x0; x <= x1; ++x) {
-    float t = (float) (x - x0) / (float) (x1 - x0);
-    int y = (int) ((float) y0 + (float) (y1 - y0) * t);
-    png_pixel_set(image, x, y, color);
+  int dx = x1 - x0;
+  int dy = y1 - y0;
+  if (dx > dy) {
+    for (int x = x0; x < x1; ++x) {
+      float t = (float) (x - x0) / (float) dx;
+      int y = y0 + (int) (t * (float) dy);
+      png_pixel_set(image, x, y, color);
+    }
+  } else {
+    for (int y = y0; y < y1; ++y) {
+      float t = (float) (y - y0) / (float) dy;
+      int x = x0 + (int) (t * (float) dx);
+      png_pixel_set(image, x, y, color);
+    }
   }
 }
 
