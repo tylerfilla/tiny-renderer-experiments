@@ -18,14 +18,11 @@
 #include "stb_image_write.h"
 
 /** An RGBA color. */
-typedef union {
-  struct {
-    uint8_t r;
-    uint8_t g;
-    uint8_t b;
-    uint8_t a;
-  };
-  uint32_t rgba;
+typedef struct {
+  uint8_t r;
+  uint8_t g;
+  uint8_t b;
+  uint8_t a;
 } color_t;
 
 /** A simple image. */
@@ -88,6 +85,13 @@ static void line(image_t* image, vec2i_t a, vec2i_t b, color_t color) {
   }
 }
 
+/** Draw an aliased triangle. */
+static void triangle(image_t* image, vec2i_t a, vec2i_t b, vec2i_t c, color_t color) {
+  line(image, a, b, color);
+  line(image, b, c, color);
+  line(image, c, a, color);
+}
+
 int main(void) {
   // Allocate output image
   image_t image;
@@ -102,8 +106,10 @@ int main(void) {
     }
   }
 
-  // Draw a line
-  line(&image, (vec2i_t) {100, 100}, (vec2i_t) {140, 50}, (color_t) {.rgba = 0xffffffff});
+  // Draw some triangles
+  triangle(&image, (vec2i_t) {100, 100}, (vec2i_t) {140, 50}, (vec2i_t) {200, 400}, (color_t) {.r = 255, .a = 255});
+  triangle(&image, (vec2i_t) {100, 401}, (vec2i_t) {432, 213}, (vec2i_t) {503, 357}, (color_t) {.g = 255, .a = 255});
+  triangle(&image, (vec2i_t) {314, 100}, (vec2i_t) {377, 378}, (vec2i_t) {231, 503}, (color_t) {.b = 255, .a = 255});
 
   // Try to write the output image
   if (!stbi_write_png("output.png", image.width, image.height, 4, image.pixels, 0)) {
