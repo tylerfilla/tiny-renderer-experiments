@@ -9,7 +9,6 @@
 // Rasterizer - Lesson 2
 //
 
-#include <math.h>
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -48,19 +47,11 @@ typedef struct {
   float y;
 } vec2f_t;
 
-/** Convert vec2i_t to vec2f_t. */
-inline static vec2f_t vec2i2f(vec2i_t v) {
-  return (vec2f_t) {
-    .x = (float) v.x,
-    .y = (float) v.y,
-  };
-}
-
 /** Convert vec2f_t to vec2i_t. */
 inline static vec2i_t vec2f2i(vec2f_t v) {
   return (vec2i_t) {
-    .x = (int) v.x,
-    .y = (int) v.y,
+      .x = (int) v.x,
+      .y = (int) v.y,
   };
 }
 
@@ -77,110 +68,6 @@ typedef struct {
   float y;
   float z;
 } vec3f_t;
-
-/** Convert vec3i_t to vec3f_t. */
-inline static vec3f_t vec3i2f(vec3i_t v) {
-  return (vec3f_t) {
-    .x = (float) v.x,
-    .y = (float) v.y,
-    .z = (float) v.z,
-  };
-}
-
-/** Convert vec3f_t to vec3i_t. */
-inline static vec3i_t vec3f2i(vec3f_t v) {
-  return (vec3i_t) {
-    .x = (int) v.x,
-    .y = (int) v.y,
-    .z = (int) v.z,
-  };
-}
-
-/** Truncate vec3i_t to vec2i_t. */
-inline static vec2i_t trunc3i2(vec3i_t v) {
-  return (vec2i_t) {
-      .x = v.x,
-      .y = v.y,
-  };
-}
-
-/** Pad vec2i_t to vec3i_t. */
-inline static vec3i_t pad2i3(vec2i_t v, int z) {
-  return (vec3i_t) {
-      .x = v.x,
-      .y = v.y,
-      .z = z,
-  };
-}
-
-/** Truncate vec3f_t to vec2f_t. */
-inline static vec2f_t trunc3f2(vec3f_t v) {
-  return (vec2f_t) {
-    .x = v.x,
-    .y = v.y,
-  };
-}
-
-/** Pad vec2f_t to vec3f_t. */
-inline static vec3f_t pad2f3(vec2f_t v, float z) {
-  return (vec3f_t) {
-      .x = v.x,
-      .y = v.y,
-      .z = z,
-  };
-}
-
-/** Cross product between two 3-vectors with floating point components. */
-inline static vec3f_t cross3f(vec3f_t a, vec3f_t b) {
-  return (vec3f_t) {
-    .x = a.y * b.z - a.z * b.y,
-    .y = a.z * b.x - a.x * b.z,
-    .z = a.x * b.y - a.y * b.x,
-  };
-}
-
-/** Draw an aliased line. */
-static void line(image_t* image, vec2i_t a, vec2i_t b, color_t color) {
-  // Displacements
-  int dx = b.x - a.x;
-  int dy = b.y - a.y;
-
-  // If the line is wider than it is tall
-  // We need to iterate on the longer axis to prevent stippling
-  if (abs(dx) > abs(dy)) {
-    // Swap points if they are reversed on the x-axis
-    if (a.x > b.x) {
-      vec2i_t c = a;
-      a = b;
-      b = c;
-      dx = -dx;
-      dy = -dy;
-    }
-
-    // Iterate over the x-axis, and draw the line
-    for (int x = a.x; x < b.x; ++x) {
-      float t = (float) (x - a.x) / (float) dx;
-      int y = (int) ((float) a.y + t * (float) dy);
-      image_pixel(image, x, y) = color;
-    }
-  } else {
-    // Swap points if they are reversed on the y-axis
-    if (a.y > b.y) {
-      vec2i_t c = a;
-      a = b;
-      b = c;
-      dx = -dx;
-      dy = -dy;
-    }
-
-    // Iterate over the y-axis, and draw the line
-    for (int y = a.y; y < b.y; ++y) {
-      float t = (float) (y - a.y) / (float) dy;
-      int x = (int) ((float) a.x + t * (float) dx);
-      image_pixel(image, x, y) = color;
-    }
-  }
-}
 
 /** Fill a triangle. */
 static void triangle(image_t* image, vec2i_t a, vec2i_t b, vec2i_t c, color_t color) {
@@ -248,13 +135,105 @@ int main(void) {
     }
   }
 
-  // Draw some triangles
-  triangle(&image, (vec2i_t) {100, 100}, (vec2i_t) {140, 50}, (vec2i_t) {200, 400}, (color_t) {.r = 255, .a = 255});
-  triangle(&image, (vec2i_t) {100, 401}, (vec2i_t) {432, 213}, (vec2i_t) {503, 357}, (color_t) {.g = 255, .a = 255});
-  triangle(&image, (vec2i_t) {314, 100}, (vec2i_t) {377, 378}, (vec2i_t) {231, 503}, (color_t) {.b = 255, .a = 255});
+  // Vertex position data
+  size_t positions_capacity = 10;
+  size_t positions_size = 0;
+  vec3f_t* positions = malloc(positions_capacity * sizeof(vec3f_t));
+
+  // Face data
+  size_t faces_capacity = 10;
+  size_t faces_size = 0;
+  vec3i_t* faces = malloc(faces_capacity * sizeof(vec3i_t));
+
+  // Open up our model file for read
+  FILE* file = fopen("data/african_head.obj", "r");
+
+  // Crudely parse model data from the file into memory
+  // I am making so many assumptions here it's not even funny
+  char line[256];
+  while (fgets(line, 256, file)) {
+    // Ignore comment lines
+    if (line[0] == '#') {
+      continue;
+    }
+
+    // Deal with meaningful lines
+    if (line[0] == 'v' && line[1] == ' ') {
+      // This line encodes a position vector
+
+      // Parse the line
+      vec3f_t position;
+      sscanf(line, "v %f %f %f", &position.x, &position.y, &position.z);
+
+      // Store the parsed data
+      if (positions_size == positions_capacity) {
+        positions_capacity *= 2;
+        positions = realloc(positions, positions_capacity * sizeof(vec3f_t));
+      }
+      positions[positions_size] = position;
+      positions_size++;
+    } else if (line[0] == 'f' && line[1] == ' ') {
+      // This line encodes a face
+
+      // Parse the line
+      int _;
+      vec3i_t face;
+      sscanf(line, "f %d/%d/%d %d/%d/%d %d/%d/%d", &face.x, &_, &_, &face.y, &_, &_, &face.z, &_, &_);
+
+      // Store the parsed data
+      if (faces_size == faces_capacity) {
+        faces_capacity *= 2;
+        faces = realloc(faces, faces_capacity * sizeof(vec3f_t));
+      }
+      faces[faces_size] = face;
+      faces_size++;
+    }
+  }
+
+  // Close model file
+  fclose(file);
+
+  // Iterate over triangular faces in model
+  for (int i = 0; i < faces_size; ++i) {
+    vec3i_t face = faces[i];
+
+    // Look up vertex positions in 3D space
+    // Keep in mind that OBJ files are one-indexed :(
+    vec3f_t p1 = positions[face.x - 1];
+    vec3f_t p2 = positions[face.y - 1];
+    vec3f_t p3 = positions[face.z - 1];
+
+    // Project these vertices into our 2D screen space
+    // This is naive just like in lesson 1 (we just drop the Z-axis altogether!)
+    vec2f_t p1_screen = {
+      .x = (1.0f + p1.x) * (float) image.width * 0.5f,
+      .y = (1.0f - p1.y) * (float) image.height * 0.5f,
+    };
+    vec2f_t p2_screen = {
+      .x = (1.0f + p2.x) * (float) image.width * 0.5f,
+      .y = (1.0f - p2.y) * (float) image.height * 0.5f,
+    };
+    vec2f_t p3_screen = {
+      .x = (1.0f + p3.x) * (float) image.width * 0.5f,
+      .y = (1.0f - p3.y) * (float) image.height * 0.5f,
+    };
+
+    // Draw the transformed triangle to the output image
+    // The great thing about triangles is that they stay triangles even after a mathematical shakedown
+    triangle(&image, vec2f2i(p1_screen), vec2f2i(p2_screen), vec2f2i(p3_screen), (color_t) {
+      .r = rand() % 255,
+      .g = rand() % 255,
+      .b = rand() % 255,
+      .a = 255,
+    });
+  }
+
+  // Clean up model data
+  free(faces);
+  free(positions);
 
   // Try to write the output image
-  if (!stbi_write_png("output3.png", image.width, image.height, 4, image.pixels, 0)) {
+  if (!stbi_write_png("output4.png", image.width, image.height, 4, image.pixels, 0)) {
     fprintf(stderr, "error: failed to write output image\n");
     return 1;
   }
