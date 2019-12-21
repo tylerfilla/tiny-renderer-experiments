@@ -17,11 +17,14 @@
 #include "stb_image_write.h"
 
 /** An RGBA8 color. */
-typedef struct {
-  uint8_t r;
-  uint8_t g;
-  uint8_t b;
-  uint8_t a;
+typedef union {
+  struct {
+    uint8_t r;
+    uint8_t g;
+    uint8_t b;
+    uint8_t a;
+  };
+  uint32_t value;
 } color_t;
 
 /** A simple image. */
@@ -35,26 +38,50 @@ typedef struct {
 #define image_pixel(image, x, y) \
     ((image_t*) (image))->pixels[(int) x + (int) (y) * ((image_t*) image)->width]
 
-int main(void) {
-  // Allocate output image
-  image_t image;
-  image.width = 512;
-  image.height = 512;
-  image.pixels = malloc(image.width * image.height * sizeof(color_t));
+/** Write an image to a PNG file. */
+static int image_write_png(const image_t* image, const char* filename) {
+  return !stbi_write_png(filename, image->width, image->height, 4, image->pixels, 0);
+}
 
-  // Fill the background
-  for (int x = 0; x < image.width; ++x) {
-    for (int y = 0; y < image.height; ++y) {
-      image_pixel(&image, x, y) = (color_t) {.r = 80, .g = 80, .b = 140, .a = 255};
+int main(void) {
+  // Allocate color buffer
+  image_t o_color;
+  o_color.width = 512;
+  o_color.height = 512;
+  o_color.pixels = malloc(o_color.width * o_color.height * sizeof(color_t));
+
+  // Allocate depth buffer
+  image_t o_depth;
+  o_depth.width = o_color.width;
+  o_depth.height = o_color.height;
+  o_depth.pixels = malloc(o_depth.width * o_depth.height * sizeof(color_t));
+
+  // Clear color buffer
+  for (int x = 0; x < o_color.width; ++x) {
+    for (int y = 0; y < o_color.height; ++y) {
+      image_pixel(&o_color, x, y) = (color_t) {
+        .r = 80,
+        .g = 80,
+        .b = 140,
+        .a = 255
+      };
     }
   }
 
-  // Try to write the output image
-  if (!stbi_write_png("output.png", image.width, image.height, 4, image.pixels, 0)) {
-    fprintf(stderr, "error: failed to write output image\n");
+  // Clear depth buffer
+  for (int x = 0; x < o_depth.width; ++x) {
+    for (int y = 0; y < o_depth.height; ++y) {
+      image_pixel(&o_depth, x, y).value = INT32_MIN;
+    }
+  }
+
+  // Try to save the color buffer
+  if (image_write_png(&o_color, "output.png")) {
+    fprintf(stderr, "error: failed to save color buffer\n");
     return 1;
   }
 
-  // Clean up output image
-  free(image.pixels);
+  // Clean up output
+  free(o_depth.pixels);
+  free(o_color.pixels);
 }
