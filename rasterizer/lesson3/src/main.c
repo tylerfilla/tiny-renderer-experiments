@@ -43,6 +43,68 @@ static int image_write_png(const image_t* image, const char* filename) {
   return !stbi_write_png(filename, image->width, image->height, 4, image->pixels, 0);
 }
 
+/** 2D vector. */
+typedef struct {
+  float x;
+  float y;
+} vec2_t;
+
+/** 3D vector. */
+typedef struct {
+  float x;
+  float y;
+  float z;
+} vec3_t;
+
+/** Fill a triangle. */
+static void triangle(image_t* o_color, image_t* o_depth, vec2_t a, vec2_t b, vec2_t c, color_t color) {
+  // Opposite corners of bounding box wrapping the triangle
+  // These are clipped at the color buffer boundaries
+  vec2_t aabb1 = {
+    .x = max(0.0f, min(a.x, min(b.x, c.x))),
+    .y = max(0.0f, min(a.y, min(b.y, c.y))),
+  };
+  vec2_t aabb2 = {
+    .x = min((float) o_color->width, max(a.x, max(b.x, c.x))),
+    .y = min((float) o_color->height, max(a.y, max(b.y, c.y))),
+  };
+
+  // The vector AB
+  vec2_t ab = {
+    .x = b.x - a.x,
+    .y = b.y - a.y,
+  };
+
+  // The vector AC
+  vec2_t ac = {
+    .x = c.x - a.x,
+    .y = c.y - a.y,
+  };
+
+  // Iterate over the bounding box
+  // We will check each of its interior pixels if it belongs to the triangle
+  for (int x = (int) aabb1.x; x < (int) (0.5f + aabb2.x); ++x) {
+    for (int y = (int) aabb1.y; y < (int) (0.5f + aabb2.y); ++y) {
+      // The vector AP
+      vec2_t ap = {
+        (float) x - a.x,
+        (float) y - a.y,
+      };
+
+      // Find normalized barycentric coordinates tuple (u, v, w)
+      float denominator = (float) ab.x * (float) ac.y - (float) ac.x * (float) ab.y;
+      float v = (float) (ap.x * ac.y - ac.x * ap.y) / denominator;
+      float w = (float) (ab.x * ap.y - ap.x * ab.y) / denominator;
+      float u = 1.0f - v - w;
+
+      // If all components are nonnegative, we are inside
+      if (u >= 0 && v >= 0 && w >= 0) {
+        image_pixel(o_color, x, y) = color;
+      }
+    }
+  }
+}
+
 int main(void) {
   // Allocate color buffer
   image_t o_color;
@@ -74,6 +136,9 @@ int main(void) {
       image_pixel(&o_depth, x, y).value = INT32_MIN;
     }
   }
+
+  // Draw a triangle
+  triangle(&o_color, &o_depth, (vec2_t) {100, 240}, (vec2_t) {460, 300}, (vec2_t) {100, 350}, (color_t) {.r = 255, .a = 255});
 
   // Try to save the color buffer
   if (image_write_png(&o_color, "output.png")) {
