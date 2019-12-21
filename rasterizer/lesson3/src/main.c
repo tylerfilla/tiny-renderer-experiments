@@ -13,6 +13,10 @@
 #include <stdint.h>
 #include <stdlib.h>
 
+#define STB_IMAGE_IMPLEMENTATION
+#define STBI_ONLY_TGA
+#include "stb_image.h"
+
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
 
@@ -37,6 +41,44 @@ typedef struct {
 /** Access a pixel in an image. */
 #define image_pixel(image, x, y) \
     ((image_t*) (image))->pixels[(int) x + (int) (y) * ((image_t*) image)->width]
+
+/** Read an image from a file. */
+static int image_read(image_t* image, const char* filename) {
+  // Try to load data from the file
+  int width;
+  int height;
+  int channels;
+  stbi_uc* data = stbi_load(filename, &width, &height, &channels, 3);
+  if (!data) {
+    return -1;
+  }
+
+  // Rearrange up the image data like we will need
+  // The caller is responsible for cleaning up the pixel data
+  image->width = width;
+  image->height = height;
+  image->pixels = malloc(image->width * image->height * sizeof(color_t));
+  for (int x = 0; x < image->width; ++x) {
+    for (int y = 0; y < image->height; ++y) {
+      // Compute pixel offset
+      int pixel = (x + (image->height - y) * image->width) * 3;
+
+      // Extract R, G, and B data
+      // The alpha channel is assumed fully opaque
+      image_pixel(image, x, y) = (color_t) {
+        .r = data[pixel],
+        .g = data[pixel + 1],
+        .b = data[pixel + 2],
+        .a = 255,
+      };
+    }
+  }
+
+  // Clean up loaded data
+  stbi_image_free(data);
+
+  return 0;
+}
 
 /** Write an image to a PNG file. */
 static int image_write_png(const image_t* image, const char* filename) {
@@ -81,7 +123,7 @@ inline static vec3_t norm3(vec3_t v) {
 }
 
 /** Fill a triangle. */
-static void triangle(image_t* o_color, image_t* o_depth, vec3_t a, vec3_t b, vec3_t c, color_t color) {
+static void triangle(image_t* o_color, image_t* o_depth, vec3_t a, vec2_t at, vec3_t b, vec2_t bt, vec3_t c, vec2_t ct, const image_t* texture, float lighting) {
   // Opposite corners of bounding box wrapping the triangle
   // These are clipped at the color buffer boundaries
   vec2_t aabb1 = {
@@ -116,7 +158,8 @@ static void triangle(image_t* o_color, image_t* o_depth, vec3_t a, vec3_t b, vec
       };
 
       // Find normalized barycentric coordinates tuple (u, v, w)
-      float denominator = (float) ab.x * (float) ac.y - (float) ac.x * (float) ab.y;
+      // This is a solution using Cramer's rule instead of the thingamabob in the lesson
+      float denominator = (float) (ab.x * ac.y - ac.x * ab.y);
       float v = (float) (ap.x * ac.y - ac.x * ap.y) / denominator;
       float w = (float) (ab.x * ap.y - ap.x * ab.y) / denominator;
       float u = 1.0f - v - w;
@@ -128,6 +171,23 @@ static void triangle(image_t* o_color, image_t* o_depth, vec3_t a, vec3_t b, vec
 
         // If this pixel is above the pixel already drawn here, then draw it
         if (depth > image_pixel(o_depth, x, y).value) {
+          // Interpolate the texture coordinates for this fragment
+          vec2_t texcoord = {
+            .x = u * at.x + v * bt.x + w * ct.x,
+            .y = u * at.y + v * bt.y + w * ct.y,
+          };
+
+          // Look up the texture color
+          int tx = (int) (texcoord.x * (float) texture->width);
+          int ty = (int) (texcoord.y * (float) texture->height);
+          color_t color = image_pixel(texture, tx, ty);
+
+          // FIXME: Don't do lighting here
+          color.r *= lighting;
+          color.g *= lighting;
+          color.b *= lighting;
+
+          // Write image data out
           image_pixel(o_color, x, y) = color;
           image_pixel(o_depth, x, y).value = depth;
         }
@@ -143,10 +203,34 @@ static void draw(image_t* o_color, image_t* o_depth) {
   int positions_size = 0;
   vec3_t* positions = malloc(positions_capacity * sizeof(vec3_t));
 
+  // Vertex texture coordinate data
+  int texcoords_capacity = 10;
+  int texcoords_size = 0;
+  vec2_t* texcoords = malloc(texcoords_capacity * sizeof(vec2_t));
+
+  /** A triangular face. */
+  typedef struct {
+    struct {
+      int position;
+      int texcoord;
+      int normal;
+    } a;
+    struct {
+      int position;
+      int texcoord;
+      int normal;
+    } b;
+    struct {
+      int position;
+      int texcoord;
+      int normal;
+    } c;
+  } face_t;
+
   // Face data
   int faces_capacity = 10;
   int faces_size = 0;
-  vec3_t* faces = malloc(faces_capacity * sizeof(vec3_t));
+  face_t* faces = malloc(faces_capacity * sizeof(face_t));
 
   // Open up our model file for read
   FILE* file = fopen("data/african_head.obj", "r");
@@ -179,18 +263,51 @@ static void draw(image_t* o_color, image_t* o_depth) {
       }
       positions[positions_size] = position;
       positions_size++;
+    } else if (line[0] == 'v' && line[1] == 't' && line[2] == ' ') {
+      // This line encodes a texture coordinate vector
+
+      // Parse the line
+      float _;
+      vec2_t texcoord;
+      sscanf(line, "vt %f %f %f", &texcoord.x, &texcoord.y, &_);
+
+      // Store the parsed data
+      if (texcoords_size == texcoords_capacity) {
+        texcoords_capacity *= 2;
+        texcoords = realloc(texcoords, texcoords_capacity * sizeof(vec3_t));
+      }
+      texcoords[texcoords_size] = texcoord;
+      texcoords_size++;
     } else if (line[0] == 'f' && line[1] == ' ') {
       // This line encodes a face
 
       // Parse the line
-      int _;
-      vec3_t face;
-      sscanf(line, "f %f/%f/%f %f/%f/%f %f/%f/%f", &face.x, &_, &_, &face.y, &_, &_, &face.z, &_, &_);
+      face_t face;
+      sscanf(
+          line,
+          "f %d/%d/%d %d/%d/%d %d/%d/%d",
+          &face.a.position,
+          &face.a.texcoord,
+          &face.a.normal,
+          &face.b.position,
+          &face.b.texcoord,
+          &face.b.normal,
+          &face.c.position,
+          &face.c.texcoord,
+          &face.c.normal);
+
+      // Wavefront OBJ files index from one :(
+      face.a.position--;
+      face.a.texcoord--;
+      face.b.position--;
+      face.b.texcoord--;
+      face.c.position--;
+      face.c.texcoord--;
 
       // Store the parsed data
       if (faces_size == faces_capacity) {
         faces_capacity *= 2;
-        faces = realloc(faces, faces_capacity * sizeof(vec3_t));
+        faces = realloc(faces, faces_capacity * sizeof(face_t));
       }
       faces[faces_size] = face;
       faces_size++;
@@ -200,15 +317,26 @@ static void draw(image_t* o_color, image_t* o_depth) {
   // Close model file
   fclose(file);
 
+  // Load the head texture
+  image_t texture;
+  if (image_read(&texture, "data/african_head_diffuse.tga")) {
+    fprintf(stderr, "error: failed to read texture file\n");
+    exit(1);
+  }
+
   // Iterate over triangular faces in model
   for (int i = 0; i < faces_size; ++i) {
-    vec3_t face = faces[i];
+    face_t face = faces[i];
 
-    // Look up vertex positions in 3D space
-    // Keep in mind that OBJ files are one-indexed :(
-    vec3_t p1 = positions[(int) face.x - 1];
-    vec3_t p2 = positions[(int) face.y - 1];
-    vec3_t p3 = positions[(int) face.z - 1];
+    // Look up vertex positions
+    vec3_t p1 = positions[face.a.position];
+    vec3_t p2 = positions[face.b.position];
+    vec3_t p3 = positions[face.c.position];
+
+    // Look up vertex texture coordinates
+    vec2_t tc1 = texcoords[face.a.texcoord];
+    vec2_t tc2 = texcoords[face.b.texcoord];
+    vec2_t tc3 = texcoords[face.c.texcoord];
 
     // The vector from P1 to P2
     vec3_t p1p2 = {
@@ -252,17 +380,16 @@ static void draw(image_t* o_color, image_t* o_depth) {
     if (lighting > 0) {
       // Draw the transformed triangle to the output image
       // The great thing about triangles is that they stay triangles even after a mathematical shakedown
-      triangle(o_color, o_depth, p1_screen, p2_screen, p3_screen, (color_t) {
-        .r = lighting * 255,
-        .g = lighting * 255,
-        .b = lighting * 255,
-        .a = 255,
-      });
+      triangle(o_color, o_depth, p1_screen, tc1, p2_screen, tc2, p3_screen, tc3, &texture, lighting);
     }
   }
 
+  // Clean up head texture
+  free(texture.pixels);
+
   // Clean up model data
   free(faces);
+  free(texcoords);
   free(positions);
 }
 
@@ -302,7 +429,7 @@ int main(void) {
   draw(&o_color, &o_depth);
 
   // Try to save the color buffer
-  if (image_write_png(&o_color, "output.png")) {
+  if (image_write_png(&o_color, "output2.png")) {
     fprintf(stderr, "error: failed to save color buffer\n");
     return 1;
   }
