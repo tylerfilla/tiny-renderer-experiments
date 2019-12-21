@@ -123,7 +123,7 @@ inline static vec3_t norm3(vec3_t v) {
 }
 
 /** Fill a triangle. */
-static void triangle(image_t* o_color, image_t* o_depth, vec3_t a, vec2_t at, vec3_t b, vec2_t bt, vec3_t c, vec2_t ct, const image_t* texture, float lighting) {
+static void triangle(image_t* o_color, image_t* o_depth, vec3_t a, vec2_t at, vec3_t an, vec3_t b, vec2_t bt, vec3_t bn, vec3_t c, vec2_t ct, vec3_t cn, const image_t* texture) {
   // Opposite corners of bounding box wrapping the triangle
   // These are clipped at the color buffer boundaries
   vec2_t aabb1 = {
@@ -177,19 +177,32 @@ static void triangle(image_t* o_color, image_t* o_depth, vec3_t a, vec2_t at, ve
             .y = u * at.y + v * bt.y + w * ct.y,
           };
 
+          // Interpolate the normal vector for this fragment
+          vec3_t normal = {
+            .x = u * an.x + v * bn.x + w * cn.x,
+            .y = u * an.y + v * bn.y + w * cn.y,
+            .z = u * an.z + v * bn.z + w * cn.z,
+          };
+
           // Look up the texture color
           int tx = (int) (texcoord.x * (float) texture->width);
           int ty = (int) (texcoord.y * (float) texture->height);
           color_t color = image_pixel(texture, tx, ty);
 
-          // FIXME: Don't do lighting here
+          // Compute lighting intensity with a forward lamp
+          float lighting = dot3(normal, (vec3_t) {.x = 0, .y = 0, .z = 1});
+
+          // Light the fragment
           color.r *= lighting;
           color.g *= lighting;
           color.b *= lighting;
 
-          // Write image data out
-          image_pixel(o_color, x, y) = color;
-          image_pixel(o_depth, x, y).value = depth;
+          // If the triangle is forward-facing
+          if (lighting > 0) {
+            // Write image data out
+            image_pixel(o_color, x, y) = color;
+            image_pixel(o_depth, x, y).value = depth;
+          }
         }
       }
     }
@@ -207,6 +220,11 @@ static void draw(image_t* o_color, image_t* o_depth) {
   int texcoords_capacity = 10;
   int texcoords_size = 0;
   vec2_t* texcoords = malloc(texcoords_capacity * sizeof(vec2_t));
+
+  // Vertex normal coordinate data
+  int normals_capacity = 10;
+  int normals_size = 0;
+  vec3_t* normals = malloc(normals_capacity * sizeof(vec3_t));
 
   /** A triangular face. */
   typedef struct {
@@ -278,6 +296,20 @@ static void draw(image_t* o_color, image_t* o_depth) {
       }
       texcoords[texcoords_size] = texcoord;
       texcoords_size++;
+    } else if (line[0] == 'v' && line[1] == 'n' && line[2] == ' ') {
+      // This line encodes a normal vector
+
+      // Parse the line
+      vec3_t normal;
+      sscanf(line, "vn %f %f %f", &normal.x, &normal.y, &normal.z);
+
+      // Store the parsed data
+      if (normals_size == normals_capacity) {
+        normals_capacity *= 2;
+        normals = realloc(normals, normals_capacity * sizeof(vec3_t));
+      }
+      normals[normals_size] = normal;
+      normals_size++;
     } else if (line[0] == 'f' && line[1] == ' ') {
       // This line encodes a face
 
@@ -299,10 +331,13 @@ static void draw(image_t* o_color, image_t* o_depth) {
       // Wavefront OBJ files index from one :(
       face.a.position--;
       face.a.texcoord--;
+      face.a.normal--;
       face.b.position--;
       face.b.texcoord--;
+      face.b.normal--;
       face.c.position--;
       face.c.texcoord--;
+      face.c.normal--;
 
       // Store the parsed data
       if (faces_size == faces_capacity) {
@@ -337,6 +372,11 @@ static void draw(image_t* o_color, image_t* o_depth) {
     vec2_t tc1 = texcoords[face.a.texcoord];
     vec2_t tc2 = texcoords[face.b.texcoord];
     vec2_t tc3 = texcoords[face.c.texcoord];
+
+    // Look up vertex normal vectors
+    vec3_t n1 = normals[face.a.normal];
+    vec3_t n2 = normals[face.b.normal];
+    vec3_t n3 = normals[face.c.normal];
 
     // The vector from P1 to P2
     vec3_t p1p2 = {
@@ -373,15 +413,9 @@ static void draw(image_t* o_color, image_t* o_depth) {
       .z = (1.0f + p3.z) * (float) INT32_MAX * 0.5f,
     };
 
-    // Compute lighting intensity with a forward lamp
-    float lighting = dot3(normal, (vec3_t) {.x = 0, .y = 0, .z = 1});
-
-    // If the triangle is forward-facing
-    if (lighting > 0) {
-      // Draw the transformed triangle to the output image
-      // The great thing about triangles is that they stay triangles even after a mathematical shakedown
-      triangle(o_color, o_depth, p1_screen, tc1, p2_screen, tc2, p3_screen, tc3, &texture, lighting);
-    }
+     // Draw the transformed triangle to the output image
+     // The great thing about triangles is that they stay triangles even after a mathematical shakedown
+     triangle(o_color, o_depth, p1_screen, tc1, n1, p2_screen, tc2, n2, p3_screen, tc3, n3, &texture);
   }
 
   // Clean up head texture
@@ -429,7 +463,7 @@ int main(void) {
   draw(&o_color, &o_depth);
 
   // Try to save the color buffer
-  if (image_write_png(&o_color, "output2.png")) {
+  if (image_write_png(&o_color, "output3.png")) {
     fprintf(stderr, "error: failed to save color buffer\n");
     return 1;
   }
